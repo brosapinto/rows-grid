@@ -158,17 +158,17 @@ const useFilter = ({
           x:
             left +
               cellWidth -
-              (isFrozenColumn ? 0 : scrollPosition.scrollLeft) <
+              (isFrozenColumn ? 0 : scrollPosition?.scrollLeft ?? 0) <
             width
               ? left +
                 cellWidth -
                 offset -
-                (isFrozenColumn ? 0 : scrollPosition.scrollLeft)
+                (isFrozenColumn ? 0 : scrollPosition?.scrollLeft ?? 0)
               : left +
                 cellWidth -
-                (isFrozenColumn ? 0 : scrollPosition.scrollLeft) -
+                (isFrozenColumn ? 0 : scrollPosition?.scrollLeft ?? 0) -
                 width,
-          y: top - (isFrozenRow ? 0 : scrollPosition.scrollTop) + offset,
+          y: top - (isFrozenRow ? 0 : scrollPosition?.scrollTop ?? 0) + offset,
         };
       });
 

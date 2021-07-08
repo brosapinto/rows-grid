@@ -541,10 +541,8 @@ const useEditable = ({
         /**
          * Set max editor ref based on grid container
          */
-        const {
-          containerWidth,
-          containerHeight,
-        } = gridRef.current.getDimensions();
+        const { containerWidth, containerHeight } =
+          gridRef.current.getDimensions();
         maxEditorDimensionsRef.current = {
           height: containerHeight - (cellPosition.y ?? 0),
           width: containerWidth - (cellPosition.x ?? 0),
@@ -591,8 +589,10 @@ const useEditable = ({
       ...position,
       x:
         (position.x as number) -
-        (isFrozenColumn ? 0 : scrollPosition.scrollLeft),
-      y: (position.y as number) - (isFrozenRow ? 0 : scrollPosition.scrollTop),
+        (isFrozenColumn ? 0 : scrollPosition?.scrollLeft ?? 0),
+      y:
+        (position.y as number) -
+        (isFrozenRow ? 0 : scrollPosition?.scrollTop ?? 0),
     };
   };
 

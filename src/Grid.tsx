@@ -9,6 +9,9 @@ import React, {
   memo,
   useEffect,
   Key,
+  FunctionComponent,
+  ComponentClass,
+  RefObject,
 } from "react";
 import { Stage, Layer, Group, Line } from "react-konva/lib/ReactKonvaCore";
 import {
@@ -46,6 +49,8 @@ import invariant from "tiny-invariant";
 import { StageConfig } from "konva/types/Stage";
 import { Direction } from "./types";
 import Konva from "konva";
+
+type ReactElementType = FunctionComponent<any> | ComponentClass<any> | string;
 
 export interface GridProps
   extends Omit<React.HTMLAttributes<HTMLDivElement>, "onScroll"> {
@@ -93,10 +98,6 @@ export interface GridProps
    * Called immediately on scroll
    */
   onImmediateScroll?: ({ scrollLeft, scrollTop }: ScrollCoords) => void;
-  /**
-   * Show scrollbars on the left and right of the grid
-   */
-  showScrollbar?: boolean;
   /**
    * Currently active cell
    */
@@ -260,6 +261,11 @@ export interface GridProps
    * Is user currently dragging a selection
    */
   isDraggingSelection?: boolean;
+
+  outerElementType?: ReactElementType;
+  innerElementType?: ReactElementType;
+  outerRef?: RefObject<HTMLDivElement>;
+  onScrollToOrScrollBy?: (props: ScrollCoords) => void;
 }
 
 export interface CellRangeArea extends CellInterface {
@@ -287,10 +293,7 @@ export interface SelectionProps
   borderCoverWidth?: number;
 }
 
-export type ScrollCoords = {
-  scrollTop: number;
-  scrollLeft: number;
-};
+export type ScrollCoords = { scrollLeft?: number; scrollTop?: number };
 
 export type OptionalScrollCoords = {
   scrollTop?: number;
@@ -500,7 +503,6 @@ const Grid: React.FC<GridProps & RefAttribute> = memo(
       scrollbarSize = 13,
       onScroll,
       onImmediateScroll,
-      showScrollbar = true,
       selectionBackgroundColor = "rgb(14, 101, 235, 0.1)",
       selectionBorderColor = "#1a73e8",
       selectionStrokeWidth = 1,
@@ -540,6 +542,10 @@ const Grid: React.FC<GridProps & RefAttribute> = memo(
       scale = 1,
       enableSelectionDrag = false,
       isDraggingSelection = false,
+      outerElementType,
+      innerElementType,
+      outerRef = useRef<HTMLDivElement>(),
+      onScrollToOrScrollBy,
       ...rest
     } = props;
 
@@ -588,10 +594,6 @@ const Grid: React.FC<GridProps & RefAttribute> = memo(
     });
     const stageRef = useRef<Konva.Stage>(null);
     const containerRef = useRef<HTMLDivElement>(null);
-    const scrollContainerRef = useRef<HTMLDivElement>(null);
-    const verticalScrollRef = useRef<HTMLDivElement>(null);
-    const wheelingRef = useRef<number | null>(null);
-    const horizontalScrollRef = useRef<HTMLDivElement>(null);
     const [_, forceRender] = useReducer((s) => s + 1, 0);
     const [scrollState, setScrollState] = useState<ScrollState>({
       scrollTop: 0,
@@ -602,8 +604,8 @@ const Grid: React.FC<GridProps & RefAttribute> = memo(
     });
     const scrollSnapRefs = useRef<ScrollSnapRef | null>(null);
     const {
-      scrollTop,
-      scrollLeft,
+      scrollTop = 0,
+      scrollLeft = 0,
       isScrolling,
       verticalScrollDirection,
       horizontalScrollDirection,
@@ -676,19 +678,6 @@ const Grid: React.FC<GridProps & RefAttribute> = memo(
       if (!isMounted.current) return;
       onScroll?.({ scrollTop, scrollLeft });
     }, [scrollTop, scrollLeft]);
-
-    /**
-     * Handle mouse wheeel
-     */
-    useEffect(() => {
-      scrollContainerRef.current?.addEventListener("wheel", handleWheel, {
-        passive: false,
-      });
-      isMounted.current = true;
-      return () => {
-        scrollContainerRef.current?.removeEventListener("wheel", handleWheel);
-      };
-    }, []);
 
     /**
      * Imperatively get the current scroll position
@@ -963,79 +952,78 @@ const Grid: React.FC<GridProps & RefAttribute> = memo(
     /**
      * Snaps vertical scrollbar to the next/prev visible row
      */
-    const snapToRowFn = useCallback(({ deltaY }: SnapRowProps) => {
-      if (!verticalScrollRef.current || !scrollSnapRefs.current) return;
-      if (deltaY !== 0) {
-        const direction = deltaY < 0 ? Direction.Up : Direction.Down;
-        const {
-          visibleRowStartIndex,
-          rowCount,
-          isHiddenRow,
-        } = scrollSnapRefs.current;
-        let nextRowIndex =
-          direction === Direction.Up
-            ? // User is scrolling up
-              Math.max(0, visibleRowStartIndex - 1)
-            : Math.min(visibleRowStartIndex, rowCount - 1);
-        /* Ignore hidden row */
-        nextRowIndex = clampIndex(nextRowIndex, isHiddenRow, direction);
-        const rowHeight = getRowHeight(nextRowIndex);
-        verticalScrollRef.current.scrollTop +=
-          (direction === Direction.Up ? -1 : 1) * rowHeight;
-      }
-    }, []);
+    // const snapToRowFn = useCallback(({ deltaY }: SnapRowProps) => {
+    //   if (!verticalScrollRef.current || !scrollSnapRefs.current) return;
+    //   if (deltaY !== 0) {
+    //     const direction = deltaY < 0 ? Direction.Up : Direction.Down;
+    //     const {
+    //       visibleRowStartIndex,
+    //       rowCount,
+    //       isHiddenRow,
+    //     } = scrollSnapRefs.current;
+    //     let nextRowIndex =
+    //       direction === Direction.Up
+    //         ? // User is scrolling up
+    //           Math.max(0, visibleRowStartIndex - 1)
+    //         : Math.min(visibleRowStartIndex, rowCount - 1);
+    //     /* Ignore hidden row */
+    //     nextRowIndex = clampIndex(nextRowIndex, isHiddenRow, direction);
+    //     const rowHeight = getRowHeight(nextRowIndex);
+    //     verticalScrollRef.current.scrollTop +=
+    //       (direction === Direction.Up ? -1 : 1) * rowHeight;
+    //   }
+    // }, []);
 
     /**
      * Snaps horizontal scrollbar to the next/prev visible column
      */
-    const snapToColumnFn = useCallback(({ deltaX }: SnapColumnProps) => {
-      if (!horizontalScrollRef.current || !scrollSnapRefs.current) return;
-      if (deltaX !== 0) {
-        const {
-          visibleColumnStartIndex,
-          columnCount,
-          isHiddenColumn,
-        } = scrollSnapRefs.current;
-        const direction = deltaX < 0 ? Direction.Left : Direction.Right;
-        let nextColumnIndex =
-          direction === Direction.Left
-            ? Math.max(0, visibleColumnStartIndex - 1)
-            : Math.min(visibleColumnStartIndex, columnCount - 1);
-        /* Ignore hidden column */
-        nextColumnIndex = clampIndex(
-          nextColumnIndex,
-          isHiddenColumn,
-          direction
-        );
-        const columnWidth = getColumnWidth(nextColumnIndex);
-        horizontalScrollRef.current.scrollLeft +=
-          (direction === Direction.Left ? -1 : 1) * columnWidth;
-      }
-    }, []);
+    // const snapToColumnFn = useCallback(({ deltaX }: SnapColumnProps) => {
+    //   if (!horizontalScrollRef.current || !scrollSnapRefs.current) return;
+    //   if (deltaX !== 0) {
+    //     const {
+    //       visibleColumnStartIndex,
+    //       columnCount,
+    //       isHiddenColumn,
+    //     } = scrollSnapRefs.current;
+    //     const direction = deltaX < 0 ? Direction.Left : Direction.Right;
+    //     let nextColumnIndex =
+    //       direction === Direction.Left
+    //         ? Math.max(0, visibleColumnStartIndex - 1)
+    //         : Math.min(visibleColumnStartIndex, columnCount - 1);
+    //     /* Ignore hidden column */
+    //     nextColumnIndex = clampIndex(
+    //       nextColumnIndex,
+    //       isHiddenColumn,
+    //       direction
+    //     );
+    //     const columnWidth = getColumnWidth(nextColumnIndex);
+    //     horizontalScrollRef.current.scrollLeft +=
+    //       (direction === Direction.Left ? -1 : 1) * columnWidth;
+    //   }
+    // }, []);
     const snapToRowThrottler = useRef<({ deltaY }: SnapRowProps) => void>();
-    const snapToColumnThrottler = useRef<
-      ({ deltaX }: SnapColumnProps) => void
-    >();
+    const snapToColumnThrottler =
+      useRef<({ deltaX }: SnapColumnProps) => void>();
 
     /**
      * Register snap throttlers
      */
-    useEffect(() => {
-      if (snap) {
-        snapToRowThrottler.current = throttle(
-          snapToRowFn,
-          scrollThrottleTimeout
-        );
-        snapToColumnThrottler.current = throttle(
-          snapToColumnFn,
-          scrollThrottleTimeout
-        );
-      }
-      return () => {
-        snapToRowThrottler.current = undefined;
-        snapToColumnThrottler.current = undefined;
-      };
-    }, [snap]);
+    // useEffect(() => {
+    //   if (snap) {
+    //     snapToRowThrottler.current = throttle(
+    //       snapToRowFn,
+    //       scrollThrottleTimeout
+    //     );
+    //     snapToColumnThrottler.current = throttle(
+    //       snapToColumnFn,
+    //       scrollThrottleTimeout
+    //     );
+    //   }
+    //   return () => {
+    //     snapToRowThrottler.current = undefined;
+    //     snapToColumnThrottler.current = undefined;
+    //   };
+    // }, [snap]);
 
     /* Find frozen column boundary */
     const isWithinFrozenColumnBoundary = useCallback(
@@ -1102,6 +1090,7 @@ const Grid: React.FC<GridProps & RefAttribute> = memo(
         ) {
           return null;
         }
+
         const rowIndex = getRowStartIndexForOffset({
           rowHeight,
           columnWidth,
@@ -1245,69 +1234,62 @@ const Grid: React.FC<GridProps & RefAttribute> = memo(
       });
     }, []);
 
-    /* Handle vertical scroll */
-    const handleScroll = useCallback(
-      (e) => {
-        const { scrollTop } = e.target;
+    /* Handle scroll */
+    const handleScroll = useCallback((e) => {
+      const { scrollTop, scrollLeft } = e.target;
 
-        setScrollState((prev) => ({
-          ...prev,
-          isScrolling: true,
-          verticalScrollDirection:
-            prev.scrollTop > scrollTop ? Direction.Up : Direction.Down,
-          scrollTop,
-        }));
+      setScrollState((prev) => ({
+        ...prev,
+        isScrolling: true,
+        verticalScrollDirection:
+          prev.scrollTop ?? 0 > scrollTop ? Direction.Up : Direction.Down,
+        scrollTop,
+        horizontalScrollDirection:
+          prev.scrollLeft ?? 0 > scrollLeft ? Direction.Left : Direction.Right,
+        scrollLeft,
+      }));
 
-        /* Scroll callbacks */
-        onImmediateScroll?.({ scrollTop, scrollLeft });
+      /* Scroll callbacks */
+      onImmediateScroll?.({ scrollTop, scrollLeft });
 
-        /* Reset isScrolling if required */
-        resetIsScrollingDebounced();
-      },
-      [scrollLeft]
-    );
-
-    /* Handle horizontal scroll */
-    const handleScrollLeft = useCallback(
-      (e) => {
-        const { scrollLeft } = e.target;
-        setScrollState((prev) => ({
-          ...prev,
-          isScrolling: true,
-          horizontalScrollDirection:
-            prev.scrollLeft > scrollLeft ? Direction.Left : Direction.Right,
-          scrollLeft,
-        }));
-
-        /* Scroll callbacks */
-        onImmediateScroll?.({ scrollLeft, scrollTop });
-
-        /* Reset isScrolling if required */
-        resetIsScrollingDebounced();
-      },
-      [scrollTop]
-    );
+      /* Reset isScrolling if required */
+      resetIsScrollingDebounced();
+    }, []);
 
     /* Scroll based on left, top position */
     const scrollTo = useCallback(
       ({ scrollTop, scrollLeft }: OptionalScrollCoords) => {
-        /* If scrollbar is visible, lets update it which triggers a state change */
-        if (showScrollbar) {
-          if (horizontalScrollRef.current && scrollLeft !== void 0)
-            horizontalScrollRef.current.scrollLeft = scrollLeft;
-          if (verticalScrollRef.current && scrollTop !== void 0)
-            verticalScrollRef.current.scrollTop = scrollTop;
-        } else {
-          setScrollState((prev) => {
-            return {
-              ...prev,
-              scrollLeft: scrollLeft == void 0 ? prev.scrollLeft : scrollLeft,
-              scrollTop: scrollTop == void 0 ? prev.scrollTop : scrollTop,
-            };
-          });
+        if (!outerRef.current) return;
+
+        let newScrollTop =
+          scrollTop == void 0 ? outerRef.current.scrollTop : scrollTop;
+        let newScrollLeft =
+          scrollLeft == void 0 ? outerRef.current.scrollLeft : scrollLeft;
+
+        if (
+          newScrollTop === outerRef.current.scrollTop &&
+          newScrollLeft === outerRef.current.scrollLeft
+        ) {
+          return;
         }
+
+        // altering the scroll position manually will trigger onScroll event which in turn triggers
+        // handleScroll
+        if (scrollTop != void 0) {
+          outerRef.current!.scrollTop = newScrollTop;
+        }
+
+        if (scrollLeft != void 0) {
+          outerRef.current!.scrollLeft = newScrollLeft;
+        }
+
+        onScrollToOrScrollBy &&
+          onScrollToOrScrollBy({
+            scrollLeft: newScrollLeft,
+            scrollTop: newScrollTop,
+          });
       },
-      [showScrollbar]
+      [onScrollToOrScrollBy]
     );
 
     /* Scroll grid to top */
@@ -1323,22 +1305,30 @@ const Grid: React.FC<GridProps & RefAttribute> = memo(
     /**
      * Scrollby utility
      */
-    const scrollBy = useCallback(({ x, y }: PosXY) => {
-      if (showScrollbar) {
-        if (horizontalScrollRef.current && x !== void 0)
-          horizontalScrollRef.current.scrollLeft += x;
-        if (verticalScrollRef.current && y !== void 0)
-          verticalScrollRef.current.scrollTop += y;
-      } else {
-        setScrollState((prev) => {
-          return {
-            ...prev,
-            scrollLeft: x == void 0 ? prev.scrollLeft : prev.scrollLeft + x,
-            scrollTop: y == void 0 ? prev.scrollTop : prev.scrollTop + y,
-          };
-        });
-      }
-    }, []);
+    const scrollBy = useCallback(
+      ({ x, y }: PosXY) => {
+        if (!outerRef.current) return;
+
+        const newScrollLeft =
+          x == void 0
+            ? outerRef.current!.scrollLeft
+            : outerRef.current!.scrollLeft + x;
+        const newScrollTop =
+          y == void 0
+            ? outerRef.current!.scrollTop
+            : outerRef.current!.scrollTop + y;
+
+        outerRef.current!.scrollLeft = newScrollLeft;
+        outerRef.current!.scrollTop = newScrollTop;
+
+        onScrollToOrScrollBy &&
+          onScrollToOrScrollBy({
+            scrollLeft: newScrollLeft,
+            scrollTop: newScrollTop,
+          });
+      },
+      [onScrollToOrScrollBy]
+    );
 
     /**
      * Scrolls to cell
@@ -1372,7 +1362,7 @@ const Grid: React.FC<GridProps & RefAttribute> = memo(
                 columnWidth,
                 rowCount,
                 rowHeight,
-                scrollOffset: scrollLeft,
+                scrollOffset: scrollLeft ?? 0,
                 instanceProps: instanceProps.current,
                 scrollbarSize,
                 frozenOffset: frozenColumnOffset,
@@ -1394,7 +1384,7 @@ const Grid: React.FC<GridProps & RefAttribute> = memo(
                 columnWidth,
                 rowCount,
                 rowHeight,
-                scrollOffset: scrollTop,
+                scrollOffset: scrollTop ?? 0,
                 instanceProps: instanceProps.current,
                 scrollbarSize,
                 frozenOffset: frozenRowOffset,
@@ -1437,59 +1427,6 @@ const Grid: React.FC<GridProps & RefAttribute> = memo(
         frozenColumns,
       ]
     );
-
-    /**
-     * Fired when user tries to scroll the canvas
-     */
-    const handleWheel = useCallback((event: globalThis.MouseWheelEvent) => {
-      /* If user presses shift key, scroll horizontally */
-      const isScrollingHorizontally = event.shiftKey;
-
-      /* Prevent browser back in Mac */
-      event.preventDefault();
-      const { deltaX, deltaY, deltaMode } = event;
-      /* Scroll natively */
-      if (wheelingRef.current) return;
-
-      let dx = isScrollingHorizontally ? deltaY : deltaX;
-      let dy = deltaY;
-
-      /* Scroll only in one direction */
-      const isHorizontal =
-        isScrollingHorizontally || Math.abs(dx) > Math.abs(dy);
-
-      /* If snaps are active */
-      if (snap) {
-        if (isHorizontal) {
-          snapToColumnThrottler.current?.({
-            deltaX,
-          });
-        } else {
-          snapToRowThrottler.current?.({
-            deltaY,
-          });
-        }
-        return;
-      }
-
-      if (deltaMode === 1) {
-        dy = dy * scrollbarSize;
-      }
-      if (!horizontalScrollRef.current || !verticalScrollRef.current) return;
-      const currentScroll = isHorizontal
-        ? horizontalScrollRef.current?.scrollLeft
-        : verticalScrollRef.current?.scrollTop;
-      wheelingRef.current = window.requestAnimationFrame(() => {
-        wheelingRef.current = null;
-        if (isHorizontal) {
-          if (horizontalScrollRef.current)
-            horizontalScrollRef.current.scrollLeft = currentScroll + dx;
-        } else {
-          if (verticalScrollRef.current)
-            verticalScrollRef.current.scrollTop = currentScroll + dy;
-        }
-      });
-    }, []);
 
     /* Callback when visible rows or columns have changed */
     useEffect(() => {
@@ -2518,9 +2455,9 @@ const Grid: React.FC<GridProps & RefAttribute> = memo(
         >
           <div
             style={{
-              transform: `translate(-${scrollLeft + frozenColumnWidth}px, -${
-                scrollTop + frozenRowHeight
-              }px)`,
+              transform: `translate(-${
+                scrollLeft ?? 0 + frozenColumnWidth
+              }px, -${scrollTop ?? 0 + frozenRowHeight}px)`,
             }}
           >
             {borderStyleCells}
@@ -2543,7 +2480,9 @@ const Grid: React.FC<GridProps & RefAttribute> = memo(
           >
             <div
               style={{
-                transform: `translate(0, -${scrollTop + frozenRowHeight}px)`,
+                transform: `translate(0, -${
+                  scrollTop ?? 0 + frozenRowHeight
+                }px)`,
               }}
             >
               {borderStyleCellsFrozenColumns}
@@ -2566,7 +2505,9 @@ const Grid: React.FC<GridProps & RefAttribute> = memo(
           >
             <div
               style={{
-                transform: `translate(-${scrollLeft + frozenColumnWidth}px, 0)`,
+                transform: `translate(-${
+                  scrollLeft ?? 0 + frozenColumnWidth
+                }px, 0)`,
               }}
             >
               {borderStyleCellsFrozenRows}
@@ -2596,84 +2537,56 @@ const Grid: React.FC<GridProps & RefAttribute> = memo(
         ) : null}
       </div>
     );
+
+    const OuterElem = outerElementType ?? "div";
+    const InnerElem = innerElementType ?? "div";
+
     return (
-      <div
+      <OuterElem
         style={{
           position: "relative",
           width: containerWidth,
+          height: containerHeight,
+          overflow: "auto",
           userSelect: "none",
+          willChange: "transform",
         }}
-        className="rowsncolumns-grid"
-        ref={scrollContainerRef}
+        className="rowsncolumns-grid outer-elem"
+        onScroll={handleScroll}
+        ref={outerRef}
       >
-        <div
-          className="rowsncolumns-grid-container"
-          tabIndex={0}
-          ref={containerRef}
+        <InnerElem
+          className="rowsncolumns-grid-container inner-elem"
+          style={{
+            height: estimatedTotalHeight,
+            width: estimatedTotalWidth,
+          }}
           {...rest}
         >
-          <Stage
-            width={containerWidth}
-            height={containerHeight}
-            ref={stageRef}
-            listening={listenToEvents}
-            {...stageProps}
+          <div
+            ref={containerRef}
+            tabIndex={0}
+            style={{
+              position: "sticky",
+              width: containerWidth,
+              height: containerHeight,
+              left: 0,
+              top: 0,
+            }}
           >
-            {wrapper(stageChildren)}
-          </Stage>
-        </div>
-        {selectionChildren}
-        {showScrollbar ? (
-          <>
-            <div
-              className="rowsncolumns-grid-scrollbar rowsncolumns-grid-scrollbar-y"
-              tabIndex={-1}
-              style={{
-                height: containerHeight,
-                overflow: "scroll",
-                position: "absolute",
-                right: 0,
-                top: 0,
-                width: scrollbarSize,
-                willChange: "transform",
-              }}
-              onScroll={handleScroll}
-              ref={verticalScrollRef}
+            <Stage
+              width={containerWidth}
+              height={containerHeight}
+              ref={stageRef}
+              listening={listenToEvents}
+              {...stageProps}
             >
-              <div
-                style={{
-                  position: "absolute",
-                  height: estimatedTotalHeight,
-                  width: 1,
-                }}
-              />
-            </div>
-            <div
-              className="rowsncolumns-grid-scrollbar rowsncolumns-grid-scrollbar-x"
-              tabIndex={-1}
-              style={{
-                overflow: "scroll",
-                position: "absolute",
-                bottom: 0,
-                left: 0,
-                width: containerWidth,
-                height: scrollbarSize,
-                willChange: "transform",
-              }}
-              onScroll={handleScrollLeft}
-              ref={horizontalScrollRef}
-            >
-              <div
-                style={{
-                  position: "absolute",
-                  width: estimatedTotalWidth,
-                  height: 1,
-                }}
-              />
-            </div>
-          </>
-        ) : null}
-      </div>
+              {wrapper(stageChildren)}
+            </Stage>
+            {selectionChildren}
+          </div>
+        </InnerElem>
+      </OuterElem>
     );
   })
 );
